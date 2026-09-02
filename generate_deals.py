@@ -1,16 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-특가스나이퍼 — 항공권 특가 데이터 수집 스크립트 (v2: 전세계 + 왕복/편도)
+특가스나이퍼 — 항공권 특가 데이터 수집 (v5: 1년치 + 메인 인기 분리)
 
-Travelpayouts Data API에서 인천(ICN) 출발 항공권 최저가를 왕복·편도 각각 수집하고,
-노선별 월간 평균가(month-matrix)와 비교해 할인율을 계산한 뒤 deals.json을 생성한다.
-
-- 도시/국가명은 iata_map.json(전세계 공항 매핑)으로 자동 처리 → 모든 나라 커버
-- 왕복(round)과 편도(oneway)를 분리 수집
-
-실행: python generate_deals.py
-환경변수: TRAVELPAYOUTS_TOKEN, TRAVELPAYOUTS_MARKER, INCLUDE_COMMISSION_LINK
+인천(ICN) 출발 왕복·편도 항공권을 최대 1년치까지 수집.
+- 각 노선의 12개월치 특가를 month-matrix로 모아 평균 대비 할인율 계산
+- 결과를 deals.json에 담음. 위젯이 메인(top N)과 검색(전체)을 구분해서 노출.
 """
 
 import os
@@ -25,40 +20,33 @@ TOKEN = os.environ.get("TRAVELPAYOUTS_TOKEN", "")
 MARKER = os.environ.get("TRAVELPAYOUTS_MARKER", "770703")
 ORIGIN = "ICN"
 CURRENCY = "krw"
-MIN_SAMPLE = 10            # 평균가 표본 최소 개수 (완화)
-DISCOUNT_THRESHOLD = -3.0   # 평균보다 3% 이상 싸면 노출 (캐치프로그 방식)
-MAX_DESTINATIONS = 200     # 왕복/편도 각각 평균가 조회할 최대 노선 수
+MIN_SAMPLE = 10
+DISCOUNT_THRESHOLD = -12.0     # 평균보다 12% 이상 싸면 특가
+MONTHS_AHEAD = 12              # 앞으로 몇 개월치 수집
+MAX_ROUTES = 45               # 1년치 수집할 노선 수 (가격 낮은 순)
+MAX_PER_CITY_MONTH = 2        # 도시+월 조합당 최대 카드 (날짜 다양성)
+MAX_TOTAL = 250              # 왕복/편도 각각 최대 카드
 INCLUDE_COMMISSION_LINK = os.environ.get("INCLUDE_COMMISSION_LINK", "false").lower() == "true"
 
 DOMESTIC_CODES = {"CJU", "PUS", "TAE", "KWJ", "USN", "RSU", "HIN", "WJU", "KPO", "KUV",
                   "SEL", "GMP", "ICN"}
-
 API_BASE = "https://api.travelpayouts.com"
 
-# ── 전세계 공항→도시/국가 매핑 로드 ──────────────────────────────
 IATA_MAP = {}
 try:
     with open("iata_map.json", "r", encoding="utf-8") as f:
         IATA_MAP = json.load(f)
 except Exception as e:  # noqa: BLE001
-    print(f"경고: iata_map.json 로드 실패 ({e}) — 도시명이 코드로 표시될 수 있습니다.")
+    print(f"경고: iata_map.json 로드 실패 ({e})")
 
-
-# 한국인에게 익숙한 이름으로 보정 (공식 도시명 → 통용 명칭)
 CITY_ALIAS = {
-    "DPS": "발리",       # 덴파사르 → 발리
-    "PQC": "푸꾸옥",     # Phuquoc → 푸꾸옥
-    "CXR": "나트랑",     # 깜라인 → 나트랑
-    "USM": "코사무이",
-    "HKT": "푸켓",
-    "OKA": "오키나와",
-    "SGN": "호치민",
+    "DPS": "발리", "PQC": "푸꾸옥", "CXR": "나트랑", "USM": "코사무이", "HKT": "푸켓",
+    "OKA": "오키나와", "SGN": "호치민",
     "TYO": "도쿄", "NRT": "도쿄", "HND": "도쿄",
     "OSA": "오사카", "KIX": "오사카", "ITM": "오사카",
     "MOW": "모스크바", "SVO": "모스크바", "DME": "모스크바", "VKO": "모스크바",
     "BJS": "베이징", "PEK": "베이징", "PKX": "베이징",
-    "SHA": "상하이", "PVG": "상하이",
-    "NYC": "뉴욕", "JFK": "뉴욕", "EWR": "뉴욕",
+    "SHA": "상하이", "PVG": "상하이", "NYC": "뉴욕", "JFK": "뉴욕", "EWR": "뉴욕",
 }
 
 
@@ -67,7 +55,6 @@ def city_name(code):
         return CITY_ALIAS[code]
     m = IATA_MAP.get(code)
     name = m["n"] if m else code
-    # 어색한 접미사 정리: '광저우 시' → '광저우', '가고시마 현' → '가고시마'
     for suffix in (" 시", "시", " 현", " 州", " 구"):
         if name.endswith(suffix) and len(name) > len(suffix) + 1:
             name = name[: -len(suffix)]
@@ -96,7 +83,7 @@ def api_get(path, params, retries=3):
     last_err = None
     for attempt in range(retries):
         try:
-            req = urllib.request.Request(url, headers={"User-Agent": "teukga-sniper/2.0"})
+            req = urllib.request.Request(url, headers={"User-Agent": "teukga-sniper/5.0"})
             with urllib.request.urlopen(req, timeout=25) as resp:
                 raw = resp.read()
                 if resp.headers.get("Content-Encoding") == "gzip":
@@ -104,60 +91,68 @@ def api_get(path, params, retries=3):
                 return json.loads(raw.decode("utf-8"))
         except Exception as e:  # noqa: BLE001
             last_err = e
-            time.sleep(1.5 * (attempt + 1))
-    raise RuntimeError(f"API 호출 실패: {path} ({last_err})")
+            time.sleep(1.2 * (attempt + 1))
+    return {"data": []}  # 실패 시 빈 데이터 (전체 중단 방지)
 
 
-def fetch_cheapest_by_route(one_way):
-    """prices_for_dates: 인천 출발 최저가를 노선별로 수집 (여러 페이지)."""
-    by_route = {}
-    for page in range(1, 6):  # 최대 5페이지까지 긁어서 노선 확보
+def fetch_route_candidates(one_way):
+    """가격 낮은 순 노선 후보 확보."""
+    best = {}
+    for page in range(1, 6):
         data = api_get(
             "/aviasales/v3/prices_for_dates",
-            {
-                "origin": ORIGIN,
-                "currency": CURRENCY,
-                "limit": 1000,
-                "page": page,
-                "sorting": "price",
-                "one_way": "true" if one_way else "false",
-            },
+            {"origin": ORIGIN, "currency": CURRENCY, "limit": 1000, "page": page,
+             "sorting": "price", "one_way": "true" if one_way else "false"},
         ).get("data", [])
         if not data:
             break
         for item in data:
             dest = item.get("destination_airport")
-            if not dest or dest in DOMESTIC_CODES:
+            if not dest or dest in DOMESTIC_CODES or dest not in IATA_MAP:
                 continue
-            if dest not in IATA_MAP:
-                continue
-            if dest not in by_route or item["price"] < by_route[dest]["price"]:
-                by_route[dest] = item
-    return by_route
+            if dest not in best or item["price"] < best[dest]["price"]:
+                best[dest] = item
+    return best
 
 
-def fetch_month_average(destination, one_way):
-    """month-matrix: 월간 평균가와 표본 수. one_way 기준 일치."""
-    data = api_get(
-        "/v2/prices/month-matrix",
-        {
-            "origin": ORIGIN,
-            "destination": destination,
-            "currency": CURRENCY,
-            "one_way": "true" if one_way else "false",
-            "show_to_affiliates": "true",
-        },
-    ).get("data", [])
-    values = [row["value"] for row in data if row.get("value")]
-    if not values:
-        return None, 0
-    return sum(values) / len(values), len(values)
+def month_iter(n):
+    now = datetime.now(timezone(timedelta(hours=9)))
+    y, m = now.year, now.month
+    for _ in range(n):
+        yield f"{y}-{m:02d}-01"
+        m += 1
+        if m > 12:
+            m = 1
+            y += 1
 
 
-def build_booking_url(link_field):
-    if not link_field:
-        return None
-    return f"https://www.aviasales.com{link_field}"
+def fetch_year_matrix(destination, one_way):
+    """노선의 12개월치 month-matrix 병합."""
+    rows = []
+    for ym in month_iter(MONTHS_AHEAD):
+        data = api_get(
+            "/v2/prices/month-matrix",
+            {"origin": ORIGIN, "destination": destination, "currency": CURRENCY,
+             "one_way": "true" if one_way else "false", "show_to_affiliates": "true",
+             "month": ym},
+        ).get("data", [])
+        rows.extend(data)
+        time.sleep(0.12)
+    return rows
+
+
+def build_booking_url(dest, depart, ret=None):
+    """month-matrix는 link가 없으므로 aviasales 검색 URL을 직접 구성."""
+    # 형식: /search/ICN{DDMM}{DEST}{DDMM}1  (편도는 뒤 날짜 생략)
+    try:
+        d = datetime.fromisoformat(depart)
+        seg = f"{d.day:02d}{d.month:02d}"
+        if ret:
+            r = datetime.fromisoformat(ret)
+            return f"https://www.aviasales.com/search/{ORIGIN}{seg}{dest}{r.day:02d}{r.month:02d}1"
+        return f"https://www.aviasales.com/search/{ORIGIN}{seg}{dest}1"
+    except Exception:  # noqa: BLE001
+        return f"https://www.aviasales.com/search?origin_iata={ORIGIN}&destination_iata={dest}"
 
 
 def build_commission_url(booking_url):
@@ -172,67 +167,78 @@ def man(n):
 
 
 def collect(one_way):
-    """왕복 또는 편도 특가 리스트 수집."""
     label = "편도" if one_way else "왕복"
-    print(f"  [{label}] 최저가 후보 수집...")
-    candidates = fetch_cheapest_by_route(one_way)
-    print(f"  [{label}] {len(candidates)}개 노선 후보")
+    print(f"  [{label}] 노선 후보 수집...")
+    best = fetch_route_candidates(one_way)
+    top = sorted(best.keys(), key=lambda d: best[d]["price"])[:MAX_ROUTES]
+    print(f"  [{label}] {len(best)}개 노선 → 상위 {len(top)}개 1년치 수집")
 
-    ordered = sorted(candidates.values(), key=lambda x: x["price"])[:MAX_DESTINATIONS]
-    deals = []
-    for item in ordered:
-        dest = item["destination_airport"]
-        avg, sample = fetch_month_average(dest, one_way)
-        time.sleep(0.25)
-        if avg is None or sample < MIN_SAMPLE:
+    cards = []
+    for idx, dest in enumerate(top, 1):
+        rows = fetch_year_matrix(dest, one_way)
+        vals = [r["value"] for r in rows if r.get("value")]
+        if len(vals) < MIN_SAMPLE:
             continue
-        price = item["price"]
-        discount = (price - avg) / avg * 100
-        if discount > DISCOUNT_THRESHOLD:
-            continue
-
+        avg = sum(vals) / len(vals)
         cc = country_code(dest)
-        booking_url = build_booking_url(item.get("link"))
-        deal = {
-            "destination_code": dest,
-            "city": city_name(dest),
-            "country_code": cc,
-            "flag": flag_emoji(cc),
-            "trip_type": "oneway" if one_way else "round",
-            "price": price,
-            "price_label": man(price),
-            "avg_price": round(avg),
-            "avg_price_label": man(avg),
-            "discount_pct": round(discount, 1),
-            "departure_at": item.get("departure_at"),
-            "return_at": item.get("return_at") if not one_way else None,
-            "sample_size": sample,
-            "fact_check_url": booking_url,
-        }
-        if INCLUDE_COMMISSION_LINK:
-            deal["booking_url"] = build_commission_url(booking_url)
-        deals.append(deal)
+        city = city_name(dest)
+        for r in rows:
+            price = r.get("value")
+            depart = r.get("depart_date")
+            ret = r.get("return_date") or None
+            if not price or not depart:
+                continue
+            discount = (price - avg) / avg * 100
+            if discount > DISCOUNT_THRESHOLD:
+                continue
+            booking_url = build_booking_url(dest, depart, ret if not one_way else None)
+            card = {
+                "destination_code": dest, "city": city, "country_code": cc,
+                "flag": flag_emoji(cc), "trip_type": "oneway" if one_way else "round",
+                "price": price, "price_label": man(price),
+                "avg_price": round(avg), "avg_price_label": man(avg),
+                "discount_pct": round(discount, 1),
+                "departure_at": depart + "T00:00:00+09:00",
+                "return_at": (ret + "T00:00:00+09:00") if (ret and not one_way) else None,
+                "sample_size": len(vals),
+                "fact_check_url": booking_url,
+            }
+            if INCLUDE_COMMISSION_LINK:
+                card["booking_url"] = build_commission_url(booking_url)
+            cards.append(card)
 
-    # 같은 도시명은 가장 싼 것 1개만 남김
-    best_by_city = {}
-    for d in deals:
-        c = d["city"]
-        if c not in best_by_city or d["price"] < best_by_city[c]["price"]:
-            best_by_city[c] = d
-    deals = list(best_by_city.values())
+    # (도시, 출발일) 중복 제거 - 최저가
+    seen = {}
+    for c in cards:
+        key = (c["city"], c["departure_at"][:10])
+        if key not in seen or c["price"] < seen[key]["price"]:
+            seen[key] = c
+    cards = list(seen.values())
 
-    deals.sort(key=lambda d: d["discount_pct"])
-    for i, d in enumerate(deals, 1):
-        d["rank"] = i
-    print(f"  [{label}] {len(deals)}개 특가 확정 (도시 중복 제거 후)")
-    return deals
+    # 도시+월 조합당 최대 MAX_PER_CITY_MONTH개
+    cards.sort(key=lambda c: c["discount_pct"])
+    per_cm, final = {}, []
+    for c in cards:
+        key = (c["city"], c["departure_at"][:7])
+        cnt = per_cm.get(key, 0)
+        if cnt >= MAX_PER_CITY_MONTH:
+            continue
+        per_cm[key] = cnt + 1
+        final.append(c)
+        if len(final) >= MAX_TOTAL:
+            break
+
+    final.sort(key=lambda c: c["discount_pct"])
+    for i, c in enumerate(final, 1):
+        c["rank"] = i
+    print(f"  [{label}] 최종 카드 {len(final)}개")
+    return final
 
 
 def main():
     if not TOKEN:
         raise SystemExit("TRAVELPAYOUTS_TOKEN 환경변수가 설정되지 않았습니다.")
-
-    print("왕복/편도 특가 수집 시작 (전세계 노선)...")
+    print("특가 수집 시작 (1년치, 전세계)...")
     round_deals = collect(one_way=False)
     oneway_deals = collect(one_way=True)
 
@@ -247,14 +253,11 @@ def main():
         "oneway_count": len(oneway_deals),
         "round": round_deals,
         "oneway": oneway_deals,
-        # 하위호환: 기존 위젯이 deals를 읽던 경우 왕복을 기본 노출
         "deals": round_deals,
         "route_count": len(round_deals),
     }
-
     with open("deals.json", "w", encoding="utf-8") as f:
         json.dump(output, f, ensure_ascii=False, indent=2)
-
     print(f"완료 → deals.json (왕복 {len(round_deals)} / 편도 {len(oneway_deals)})")
 
 
