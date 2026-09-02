@@ -25,9 +25,9 @@ TOKEN = os.environ.get("TRAVELPAYOUTS_TOKEN", "")
 MARKER = os.environ.get("TRAVELPAYOUTS_MARKER", "770703")
 ORIGIN = "ICN"
 CURRENCY = "krw"
-MIN_SAMPLE = 20            # 평균가 표본 최소 개수
-DISCOUNT_THRESHOLD = -25.0  # 할인율 -25% 이상만 특가로 인정
-MAX_DESTINATIONS = 80      # 왕복/편도 각각 평균가 조회할 최대 노선 수
+MIN_SAMPLE = 10            # 평균가 표본 최소 개수 (완화)
+DISCOUNT_THRESHOLD = -3.0   # 평균보다 3% 이상 싸면 노출 (캐치프로그 방식)
+MAX_DESTINATIONS = 200     # 왕복/편도 각각 평균가 조회할 최대 노선 수
 INCLUDE_COMMISSION_LINK = os.environ.get("INCLUDE_COMMISSION_LINK", "false").lower() == "true"
 
 DOMESTIC_CODES = {"CJU", "PUS", "TAE", "KWJ", "USN", "RSU", "HIN", "WJU", "KPO", "KUV",
@@ -66,7 +66,13 @@ def city_name(code):
     if code in CITY_ALIAS:
         return CITY_ALIAS[code]
     m = IATA_MAP.get(code)
-    return m["n"] if m else code
+    name = m["n"] if m else code
+    # 어색한 접미사 정리: '광저우 시' → '광저우', '가고시마 현' → '가고시마'
+    for suffix in (" 시", "시", " 현", " 州", " 구"):
+        if name.endswith(suffix) and len(name) > len(suffix) + 1:
+            name = name[: -len(suffix)]
+            break
+    return name.strip()
 
 
 def country_code(code):
@@ -103,28 +109,30 @@ def api_get(path, params, retries=3):
 
 
 def fetch_cheapest_by_route(one_way):
-    """prices_for_dates: 인천 출발 최저가를 노선별로 수집. one_way=True/False."""
-    data = api_get(
-        "/aviasales/v3/prices_for_dates",
-        {
-            "origin": ORIGIN,
-            "currency": CURRENCY,
-            "limit": 1000,
-            "sorting": "price",
-            "one_way": "true" if one_way else "false",
-        },
-    ).get("data", [])
-
+    """prices_for_dates: 인천 출발 최저가를 노선별로 수집 (여러 페이지)."""
     by_route = {}
-    for item in data:
-        dest = item.get("destination_airport")
-        if not dest or dest in DOMESTIC_CODES:
-            continue
-        # 매핑에 없는 코드는 스킵 (이상한 목적지 방지)
-        if dest not in IATA_MAP:
-            continue
-        if dest not in by_route or item["price"] < by_route[dest]["price"]:
-            by_route[dest] = item
+    for page in range(1, 6):  # 최대 5페이지까지 긁어서 노선 확보
+        data = api_get(
+            "/aviasales/v3/prices_for_dates",
+            {
+                "origin": ORIGIN,
+                "currency": CURRENCY,
+                "limit": 1000,
+                "page": page,
+                "sorting": "price",
+                "one_way": "true" if one_way else "false",
+            },
+        ).get("data", [])
+        if not data:
+            break
+        for item in data:
+            dest = item.get("destination_airport")
+            if not dest or dest in DOMESTIC_CODES:
+                continue
+            if dest not in IATA_MAP:
+                continue
+            if dest not in by_route or item["price"] < by_route[dest]["price"]:
+                by_route[dest] = item
     return by_route
 
 
