@@ -32,8 +32,8 @@ ORIGIN = "ICN"
 CURRENCY = "krw"
 MIN_SAMPLE = 8               # 평균가 표본 최소
 MONTHS_AHEAD = 12
-MAX_ROUTES = 60             # 1년치 수집할 노선 수
-MAX_PER_ROUTE = 40          # 노선당 최대 저장 항공편 (용량 관리)
+MAX_ROUTES = 300            # 전체 노선 수집 (public repo는 Actions 무제한)
+MAX_PER_ROUTE = 20          # 노선당 최대 저장 항공편 (용량 관리)
 INCLUDE_COMMISSION_LINK = os.environ.get("INCLUDE_COMMISSION_LINK", "false").lower() == "true"
 
 DOMESTIC_CODES = {"CJU", "PUS", "TAE", "KWJ", "USN", "RSU", "HIN", "WJU", "KPO", "KUV",
@@ -143,7 +143,7 @@ def fetch_year_matrix(destination, one_way):
              "month": ym},
         ).get("data", [])
         rows.extend(data)
-        time.sleep(0.1)
+        time.sleep(0.08)
     return rows
 
 
