@@ -1,0 +1,312 @@
+<!-- ============================================================
+     특가스나이퍼 — 블스팟(Blogspot) 삽입용 실시간 항공권 특가 위젯
+     ------------------------------------------------------------
+     사용법:
+     1) 아래 DATA_URL 값을 본인 GitHub raw 주소로 바꾸세요.
+        예) https://raw.githubusercontent.com/내아이디/teukga-sniper/main/deals.json
+     2) 블스팟 글쓰기 → "HTML 보기" 모드로 전환 → 이 코드 전체를 붙여넣기.
+        (또는 테마 편집에서 원하는 위치에 삽입)
+     3) deals.json은 GitHub Actions가 4시간마다 자동 갱신합니다.
+     ============================================================ -->
+<div id="ts-root">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css">
+<style>
+  /* 블스팟 테마와 충돌 줄이려고 모든 규칙을 #ts-root 아래로 한정 */
+  #ts-root{
+    --blue-700:#0057b8;
+    --blue-600:#0064d2;
+    --blue-500:#0078ff;
+    --blue-50:#eaf3ff;
+    --ink:#0f1b2d;
+    --ink-2:#4a5a70;
+    --ink-3:#8494a8;
+    --line:#e6ebf2;
+    --sniper:#ff3b30;
+    --sniper-bg:#fff0ef;
+    --card:#ffffff;
+    --bg:#ffffff;
+    --radius:16px;
+    --shadow:0 1px 2px rgba(15,27,45,.04), 0 8px 24px rgba(15,27,45,.06);
+    font-family:'Pretendard','Apple SD Gothic Neo','Malgun Gothic',-apple-system,sans-serif;
+    color:var(--ink);
+    background:var(--bg);
+    max-width:940px;
+    margin:0 auto;
+    padding:8px 16px 48px;
+    line-height:1.5;
+    -webkit-font-smoothing:antialiased;
+  }
+  #ts-root *{box-sizing:border-box;}
+  #ts-root a{color:inherit;text-decoration:none;}
+
+  /* ── 헤더 ─────────────────────────── */
+  #ts-root .ts-head{padding:22px 4px 14px;}
+  #ts-root .ts-brand{display:flex;align-items:center;gap:9px;font-weight:800;font-size:16px;}
+  #ts-root .ts-scope{width:22px;height:22px;border:2px solid var(--blue-500);border-radius:50%;position:relative;flex:none;}
+  #ts-root .ts-scope::before,#ts-root .ts-scope::after{content:"";position:absolute;background:var(--blue-500);}
+  #ts-root .ts-scope::before{left:50%;top:-4px;width:2px;height:7px;transform:translateX(-50%);}
+  #ts-root .ts-scope::after{top:50%;left:-4px;height:2px;width:7px;transform:translateY(-50%);}
+  #ts-root .ts-scope i{position:absolute;inset:6px;border-radius:50%;background:var(--sniper);}
+  #ts-root h1.ts-title{font-size:clamp(22px,4vw,30px);font-weight:800;letter-spacing:-.02em;margin:16px 0 6px;}
+  #ts-root h1.ts-title b{color:var(--blue-600);}
+  #ts-root .ts-sub{font-size:14px;color:var(--ink-2);margin:0;}
+  #ts-root .ts-updated{font-size:12.5px;color:var(--ink-3);margin-top:8px;}
+
+  /* ── 필터 바 ──────────────────────── */
+  #ts-root .ts-filter{
+    display:flex;flex-wrap:wrap;gap:8px;align-items:center;
+    background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
+    padding:12px;margin:16px 0 10px;box-shadow:var(--shadow);
+  }
+  #ts-root .ts-seg{display:inline-flex;background:var(--blue-50);border-radius:10px;padding:3px;}
+  #ts-root .ts-seg button{
+    border:0;background:transparent;font:inherit;font-size:13px;font-weight:700;
+    color:var(--ink-2);padding:7px 14px;border-radius:8px;cursor:pointer;
+  }
+  #ts-root .ts-seg button.on{background:var(--blue-600);color:#fff;}
+  #ts-root .ts-field{display:flex;align-items:center;gap:6px;}
+  #ts-root .ts-field label{font-size:12px;color:var(--ink-3);font-weight:600;}
+  #ts-root .ts-field select{
+    font:inherit;font-size:13px;font-weight:600;color:var(--ink);
+    border:1px solid var(--line);background:#fff;border-radius:10px;
+    padding:8px 10px;cursor:pointer;
+  }
+  #ts-root .ts-field select:focus-visible{outline:2px solid var(--blue-500);outline-offset:1px;}
+  #ts-root .ts-reset{
+    margin-left:auto;font:inherit;font-size:12.5px;font-weight:600;color:var(--blue-600);
+    background:transparent;border:0;cursor:pointer;padding:8px 4px;
+  }
+
+  /* ── 요약 줄 ──────────────────────── */
+  #ts-root .ts-summary{
+    display:flex;gap:22px;flex-wrap:wrap;padding:4px 6px 14px;
+    font-size:13px;color:var(--ink-2);
+  }
+  #ts-root .ts-summary b{color:var(--ink);font-weight:800;font-variant-numeric:tabular-nums;}
+  #ts-root .ts-summary .hi{color:var(--sniper);}
+
+  /* ── 카드 그리드 ──────────────────── */
+  #ts-root .ts-grid{
+    display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:14px;
+  }
+  #ts-root .ts-card{
+    position:relative;display:block;background:var(--card);
+    border:1px solid var(--line);border-radius:var(--radius);
+    padding:18px 18px 16px;box-shadow:var(--shadow);
+    transition:transform .12s ease, box-shadow .12s ease, border-color .12s ease;
+  }
+  #ts-root .ts-card:hover{transform:translateY(-2px);border-color:#cfe0f7;
+    box-shadow:0 2px 4px rgba(15,27,45,.05),0 14px 34px rgba(0,100,210,.12);}
+  #ts-root .ts-card .disc-badge{
+    position:absolute;top:14px;right:14px;
+    background:var(--sniper-bg);color:var(--sniper);
+    font-weight:800;font-size:14px;font-variant-numeric:tabular-nums;
+    padding:5px 9px;border-radius:9px;
+  }
+  #ts-root .ts-card .city-row{display:flex;align-items:center;gap:8px;margin-bottom:2px;}
+  #ts-root .ts-card .flag{font-size:24px;line-height:1;}
+  #ts-root .ts-card .city{font-size:22px;font-weight:800;letter-spacing:-.01em;}
+  #ts-root .ts-card .route{font-size:12.5px;color:var(--ink-3);margin-bottom:16px;}
+  #ts-root .ts-card .avg{font-size:12.5px;color:var(--ink-3);text-decoration:line-through;text-decoration-color:#c3cede;}
+  #ts-root .ts-card .price{font-size:26px;font-weight:800;letter-spacing:-.02em;font-variant-numeric:tabular-nums;margin-top:1px;}
+  #ts-root .ts-card .price small{font-size:14px;font-weight:700;color:var(--ink-2);margin-left:2px;}
+  #ts-root .ts-card .cta{
+    display:flex;align-items:center;justify-content:space-between;
+    margin-top:15px;padding-top:13px;border-top:1px solid var(--line);
+    font-size:12.5px;color:var(--blue-600);font-weight:700;
+  }
+  #ts-root .ts-card .cta .live{color:var(--ink-3);font-weight:600;display:flex;align-items:center;gap:5px;}
+  #ts-root .ts-card .cta .live .dot{width:6px;height:6px;border-radius:50%;background:#22c55e;display:inline-block;}
+
+  /* ── 상태 표시 ────────────────────── */
+  #ts-root .ts-state{padding:56px 12px;text-align:center;color:var(--ink-3);font-size:14px;grid-column:1/-1;}
+  #ts-root .ts-state.err{color:var(--sniper);}
+
+  /* ── 푸터 ─────────────────────────── */
+  #ts-root .ts-foot{margin-top:26px;padding-top:16px;border-top:1px solid var(--line);
+    font-size:11.5px;color:var(--ink-3);line-height:1.7;}
+  #ts-root .ts-foot a{color:var(--blue-600);text-decoration:underline;}
+
+  @media (max-width:520px){
+    #ts-root{padding:8px 12px 40px;}
+    #ts-root .ts-grid{grid-template-columns:1fr 1fr;gap:10px;}
+    #ts-root .ts-card{padding:14px 13px 13px;}
+    #ts-root .ts-card .city{font-size:18px;}
+    #ts-root .ts-card .price{font-size:21px;}
+    #ts-root .ts-card .disc-badge{font-size:12px;padding:4px 7px;}
+    #ts-root .ts-reset{margin-left:0;}
+  }
+</style>
+
+<div class="ts-head">
+  <div class="ts-brand"><span class="ts-scope"><i></i></span>특가스나이퍼</div>
+  <h1 class="ts-title">평균가보다 <b>확 떨어진</b> 항공권만 저격</h1>
+  <p class="ts-sub">인천 출발 항공권을 최근 한 달 평균가와 비교해, 크게 싸진 것만 실시간으로 모았어요.</p>
+  <p class="ts-updated" id="ts-updated">데이터 불러오는 중…</p>
+</div>
+
+<div class="ts-filter">
+  <div class="ts-seg" id="ts-trip">
+    <button data-trip="all" class="on">전체</button>
+    <button data-trip="round">왕복</button>
+    <button data-trip="oneway">편도</button>
+  </div>
+  <div class="ts-field">
+    <label>도착지</label>
+    <select id="ts-dest"><option value="all">전체</option></select>
+  </div>
+  <div class="ts-field">
+    <label>가격대</label>
+    <select id="ts-price">
+      <option value="all">전체</option>
+      <option value="0-150000">15만 원 이하</option>
+      <option value="150000-250000">15~25만 원</option>
+      <option value="250000-400000">25~40만 원</option>
+      <option value="400000-99999999">40만 원 이상</option>
+    </select>
+  </div>
+  <div class="ts-field">
+    <label>정렬</label>
+    <select id="ts-sort">
+      <option value="disc">할인율 큰 순</option>
+      <option value="price-asc">가격 낮은 순</option>
+      <option value="date">출발일 빠른 순</option>
+    </select>
+  </div>
+  <button class="ts-reset" id="ts-reset">필터 초기화</button>
+</div>
+
+<div class="ts-summary" id="ts-summary"></div>
+
+<div class="ts-grid" id="ts-grid">
+  <div class="ts-state">불러오는 중…</div>
+</div>
+
+<div class="ts-foot">
+  가격은 최대 48시간 캐시된 데이터 기준이라 실제 결제 가격·좌석은 예약 시점에 달라질 수 있어요. 카드를 누르면 실제 검색 페이지에서 최종 가격을 확인할 수 있습니다.
+  일부 링크는 제휴 링크로, 예약 시 특가스나이퍼가 소정의 커미션을 받을 수 있어요. 항공권 예약의 당사자는 각 판매처이며, 특가스나이퍼는 가격을 비교·안내하는 서비스입니다.
+  데이터 제공: Travelpayouts (Aviasales) · <a href="https://www.threads.net/@teukga_sniper" target="_blank" rel="noopener">Threads @teukga_sniper</a>
+</div>
+
+<script>
+(function(){
+  // ★★★ 여기를 본인 GitHub raw 주소로 바꾸세요 ★★★
+  var DATA_URL = "https://raw.githubusercontent.com/YOUR_ID/teukga-sniper/main/deals.json";
+
+  var state = { all: [], trip: "all", dest: "all", price: "all", sort: "disc" };
+
+  function man(n){ return Math.round(n/10000) + "만"; }
+  function fmtDate(iso){
+    if(!iso) return "-";
+    var d = new Date(iso); if(isNaN(d)) return "-";
+    var days=["일","월","화","수","목","금","토"];
+    return (d.getMonth()+1)+"."+d.getDate()+"("+days[d.getDay()]+")";
+  }
+
+  function load(){
+    fetch(DATA_URL, {cache:"no-store"})
+      .then(function(r){ if(!r.ok) throw new Error("HTTP "+r.status); return r.json(); })
+      .then(function(data){
+        state.all = data.deals || [];
+        document.getElementById("ts-updated").textContent =
+          (data.generated_at_label || "") + " · " + state.all.length + "개 노선 추적 중";
+        buildDestOptions();
+        render();
+      })
+      .catch(function(err){
+        document.getElementById("ts-updated").textContent = "";
+        document.getElementById("ts-grid").innerHTML =
+          '<div class="ts-state err">지금은 특가 데이터를 불러올 수 없어요. 잠시 후 다시 확인해주세요.<br><small>('+err.message+')</small></div>';
+      });
+  }
+
+  function buildDestOptions(){
+    var sel = document.getElementById("ts-dest");
+    var seen = {};
+    state.all.forEach(function(d){ seen[d.city]=true; });
+    Object.keys(seen).sort().forEach(function(city){
+      var o=document.createElement("option"); o.value=city; o.textContent=city; sel.appendChild(o);
+    });
+  }
+
+  function tripOf(d){
+    // return_at이 있으면 왕복, 없으면 편도
+    return d.return_at ? "round" : "oneway";
+  }
+
+  function filtered(){
+    var list = state.all.slice();
+    if(state.trip !== "all") list = list.filter(function(d){ return tripOf(d)===state.trip; });
+    if(state.dest !== "all") list = list.filter(function(d){ return d.city===state.dest; });
+    if(state.price !== "all"){
+      var p = state.price.split("-"); var lo=+p[0], hi=+p[1];
+      list = list.filter(function(d){ return d.price>=lo && d.price<hi; });
+    }
+    if(state.sort==="disc") list.sort(function(a,b){ return a.discount_pct-b.discount_pct; });
+    else if(state.sort==="price-asc") list.sort(function(a,b){ return a.price-b.price; });
+    else if(state.sort==="date") list.sort(function(a,b){ return new Date(a.departure_at)-new Date(b.departure_at); });
+    return list;
+  }
+
+  function render(){
+    var list = filtered();
+    var grid = document.getElementById("ts-grid");
+    var sum = document.getElementById("ts-summary");
+
+    if(!list.length){
+      grid.innerHTML = '<div class="ts-state">조건에 맞는 특가가 없어요. 필터를 바꿔보세요.</div>';
+      sum.innerHTML = "";
+      return;
+    }
+
+    var best = list.reduce(function(m,d){ return d.discount_pct<m?d.discount_pct:m; }, 0);
+    sum.innerHTML = "지금 <b>"+list.length+"</b>개 노선이 평균가보다 저렴해요. " +
+                    "최대 <b class='hi'>"+Math.abs(best).toFixed(1)+"%</b> 떨어졌어요.";
+
+    grid.innerHTML = list.map(function(d){
+      var link = d.booking_url || d.fact_check_url || "#";
+      var trip = tripOf(d)==="round" ? "왕복" : "편도";
+      var dates = tripOf(d)==="round"
+        ? fmtDate(d.departure_at)+" ~ "+fmtDate(d.return_at)
+        : fmtDate(d.departure_at);
+      return ''+
+      '<a class="ts-card" href="'+link+'" target="_blank" rel="noopener sponsored">'+
+        '<span class="disc-badge">'+d.discount_pct.toFixed(1)+'%</span>'+
+        '<span class="city-row"><span class="flag">'+(d.flag||'')+'</span>'+
+          '<span class="city">'+d.city+'</span></span>'+
+        '<div class="route">인천 → '+d.city+' · '+dates+' · '+trip+'</div>'+
+        '<div class="avg">평균 '+d.avg_price_label+'</div>'+
+        '<div class="price">'+man(d.price)+'<small>원</small></div>'+
+        '<div class="cta"><span class="live"><span class="dot"></span>실시간 가격</span>'+
+          '<span>가격 확인 →</span></div>'+
+      '</a>';
+    }).join("");
+  }
+
+  // 이벤트 바인딩
+  document.getElementById("ts-trip").addEventListener("click", function(e){
+    var btn = e.target.closest("button"); if(!btn) return;
+    this.querySelectorAll("button").forEach(function(b){ b.classList.remove("on"); });
+    btn.classList.add("on");
+    state.trip = btn.getAttribute("data-trip");
+    render();
+  });
+  document.getElementById("ts-dest").addEventListener("change", function(){ state.dest=this.value; render(); });
+  document.getElementById("ts-price").addEventListener("change", function(){ state.price=this.value; render(); });
+  document.getElementById("ts-sort").addEventListener("change", function(){ state.sort=this.value; render(); });
+  document.getElementById("ts-reset").addEventListener("click", function(){
+    state.trip="all"; state.dest="all"; state.price="all"; state.sort="disc";
+    document.getElementById("ts-dest").value="all";
+    document.getElementById("ts-price").value="all";
+    document.getElementById("ts-sort").value="disc";
+    var seg=document.getElementById("ts-trip");
+    seg.querySelectorAll("button").forEach(function(b){ b.classList.remove("on"); });
+    seg.querySelector('[data-trip="all"]').classList.add("on");
+    render();
+  });
+
+  load();
+})();
+</script>
+</div>
+<!-- ============ 특가스나이퍼 위젯 끝 ============ -->
