@@ -1,0 +1,37 @@
+name: Update flight deals
+
+on:
+  schedule:
+    # UTC 기준 0,4,8,12,16,20시 = KST 9,13,17,21,1,5시마다 실행
+    - cron: "0 */4 * * *"
+  workflow_dispatch: {}   # 수동 실행 버튼
+
+permissions:
+  contents: write
+
+jobs:
+  update-deals:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 저장소 체크아웃
+        uses: actions/checkout@v4
+
+      - name: 파이썬 설치
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: deals JSON 생성 (멀티 출발지)
+        env:
+          TRAVELPAYOUTS_TOKEN: "771c42f7af896ec4a6776fb93c414368"
+          TRAVELPAYOUTS_MARKER: "770703"
+          INCLUDE_COMMISSION_LINK: "false"
+        run: python generate_deals.py
+
+      - name: 변경사항 커밋 & 푸시
+        run: |
+          git config user.name "teukga-sniper-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add deals.json deals_*.json
+          git diff --cached --quiet && echo "변경 없음, 커밋 생략" || git commit -m "chore: 특가 데이터 자동 갱신 [skip ci]"
+          git push
