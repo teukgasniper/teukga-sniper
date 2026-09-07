@@ -168,6 +168,64 @@ def build_booking_url(origin, dest, depart, ret=None):
         return f"https://www.aviasales.com/search?origin_iata={origin}&destination_iata={dest}"
 
 
+# ── Trip.com 도시코드 매핑 (공항코드 → Trip.com 도시코드) ──
+TRIP_CITY = {
+    "ICN": "SEL", "GMP": "SEL",
+    "NRT": "TYO", "HND": "TYO",
+    "KIX": "OSA", "ITM": "OSA",
+    "FUK": "FUK", "CTS": "SPK", "OKA": "OKA", "NGO": "NGO",
+    "HIJ": "HIJ", "KOJ": "KOJ", "KMJ": "KMJ",
+    "BKK": "BKK", "DMK": "BKK", "CNX": "CNX", "HKT": "HKT", "USM": "USM",
+    "HAN": "HAN", "SGN": "SGN", "DAD": "DAD", "PQC": "PQC", "CXR": "NHA",
+    "MNL": "MNL", "CEB": "CEB", "KLO": "KLO", "TAG": "TAG",
+    "SIN": "SIN", "KUL": "KUL", "DPS": "DPS",
+    "TPE": "TPE", "KHH": "KHH", "HKG": "HKG", "MFM": "MFM",
+    "PEK": "BJS", "PKX": "BJS", "PVG": "SHA", "TAO": "TAO",
+    "JFK": "NYC", "EWR": "NYC", "LAX": "LAX", "HNL": "HNL", "SFO": "SFO",
+    "LHR": "LON", "LGW": "LON", "CDG": "PAR", "ORY": "PAR",
+    "FCO": "ROM", "BCN": "BCN", "IST": "IST", "PRG": "PRG",
+    "FRA": "FRA", "AMS": "AMS",
+    "PUS": "PUS", "CJJ": "CJJ", "TAE": "TAE", "CJU": "CJU",
+}
+
+# Trip.com URL용 도시 슬러그 (영문 소문자)
+TRIP_SLUG = {
+    "SEL": "seoul", "TYO": "tokyo", "OSA": "osaka", "FUK": "fukuoka",
+    "SPK": "sapporo", "OKA": "okinawa", "NGO": "nagoya", "HIJ": "hiroshima",
+    "KOJ": "kagoshima", "KMJ": "kumamoto",
+    "BKK": "bangkok", "CNX": "chiang-mai", "HKT": "phuket", "USM": "ko-samui",
+    "HAN": "hanoi", "SGN": "ho-chi-minh-city", "DAD": "da-nang",
+    "PQC": "phu-quoc", "NHA": "nha-trang",
+    "MNL": "manila", "CEB": "cebu", "KLO": "kalibo", "TAG": "bohol",
+    "SIN": "singapore", "KUL": "kuala-lumpur", "DPS": "bali",
+    "TPE": "taipei", "KHH": "kaohsiung", "HKG": "hong-kong", "MFM": "macau",
+    "BJS": "beijing", "SHA": "shanghai", "TAO": "qingdao",
+    "NYC": "new-york", "LAX": "los-angeles", "HNL": "honolulu", "SFO": "san-francisco",
+    "LON": "london", "PAR": "paris", "ROM": "rome", "BCN": "barcelona",
+    "IST": "istanbul", "PRG": "prague", "FRA": "frankfurt", "AMS": "amsterdam",
+    "PUS": "busan", "CJJ": "cheongju", "TAE": "daegu", "CJU": "jeju",
+}
+
+
+def build_trip_url(origin, dest, depart, ret=None):
+    """Trip.com 한국어 검색 URL 생성"""
+    try:
+        o_city = TRIP_CITY.get(origin, origin)
+        d_city = TRIP_CITY.get(dest, dest)
+        o_slug = TRIP_SLUG.get(o_city, o_city.lower())
+        d_slug = TRIP_SLUG.get(d_city, d_city.lower())
+        d_date = datetime.fromisoformat(depart).strftime("%Y-%m-%d")
+        params = f"locale=ko-kr&curr=KRW&dcity={o_city}&acity={d_city}&ddate={d_date}&class=Y&adult=1"
+        if ret:
+            r_date = datetime.fromisoformat(ret).strftime("%Y-%m-%d")
+            params += f"&rdate={r_date}&flighttype=RT"
+        else:
+            params += "&flighttype=OW"
+        return f"https://kr.trip.com/flights/{o_slug}-to-{d_slug}/tickets-{o_city.lower()}-{d_city.lower()}?{params}"
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def build_commission_url(booking_url):
     if not booking_url:
         return None
@@ -225,6 +283,7 @@ def collect(origin, max_routes, one_way):
                 "return_at": (ret + "T00:00:00+09:00") if (ret and not one_way) else None,
                 "sample_size": len(vals),
                 "fact_check_url": booking_url,
+                "trip_url": build_trip_url(origin, dest, depart, ret if not one_way else None),
             }
             if INCLUDE_COMMISSION_LINK:
                 f["booking_url"] = build_commission_url(booking_url)
